@@ -3,6 +3,8 @@ package controller
 import (
 	"net/http"
 	"strconv"
+
+	"github.com/TwinProduction/gatus/storage/store/common"
 )
 
 const (
@@ -13,7 +15,7 @@ const (
 	DefaultPageSize = 20
 
 	// MaximumPageSize is the maximum page size allowed
-	MaximumPageSize = 100
+	MaximumPageSize = common.MaximumNumberOfResults
 )
 
 func extractPageAndPageSizeFromRequest(r *http.Request) (page int, pageSize int) {

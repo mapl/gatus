@@ -9,6 +9,7 @@ import (
 	"github.com/TwinProduction/gatus/alerting/provider/messagebird"
 	"github.com/TwinProduction/gatus/alerting/provider/pagerduty"
 	"github.com/TwinProduction/gatus/alerting/provider/slack"
+	"github.com/TwinProduction/gatus/alerting/provider/teams"
 	"github.com/TwinProduction/gatus/alerting/provider/telegram"
 	"github.com/TwinProduction/gatus/alerting/provider/twilio"
 )
@@ -32,6 +33,9 @@ type Config struct {
 
 	// Slack is the configuration for the slack alerting provider
 	Slack *slack.AlertProvider `yaml:"slack"`
+
+	// Teams is the configuration for the teams alerting provider
+	Teams *teams.AlertProvider `yaml:"teams"`
 
 	// Telegram is the configuration for the telegram alerting provider
 	Telegram *telegram.AlertProvider `yaml:"telegram"`
@@ -79,6 +83,12 @@ func (config Config) GetAlertingProviderByAlertType(alertType alert.Type) provid
 			return nil
 		}
 		return config.Slack
+	case alert.TypeTeams:
+		if config.Teams == nil {
+			// Since we're returning an interface, we need to explicitly return nil, even if the provider itself is nil
+			return nil
+		}
+		return config.Teams
 	case alert.TypeTelegram:
 		if config.Telegram == nil {
 			// Since we're returning an interface, we need to explicitly return nil, even if the provider itself is nil

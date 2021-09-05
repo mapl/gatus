@@ -5,19 +5,28 @@
 [![codecov](https://codecov.io/gh/TwinProduction/gatus/branch/master/graph/badge.svg)](https://codecov.io/gh/TwinProduction/gatus)
 [![Go version](https://img.shields.io/github/go-mod/go-version/TwinProduction/gatus.svg)](https://github.com/TwinProduction/gatus)
 [![Docker pulls](https://img.shields.io/docker/pulls/twinproduction/gatus.svg)](https://cloud.docker.com/repository/docker/twinproduction/gatus)
+[![Join Discord server](https://img.shields.io/discord/442432928614449155.svg?label=&logo=discord&logoColor=ffffff&color=7389D8&labelColor=6A7EC2)](https://discord.gg/TDfjeHmXDQ)
 [![Follow TwinProduction](https://img.shields.io/github/followers/TwinProduction?label=Follow&style=social)](https://github.com/TwinProduction)
 
 Gatus is a health dashboard that gives you the ability to monitor your services using HTTP, ICMP, TCP, and even DNS
 queries as well as evaluate the result of said queries by using a list of conditions on values like the status code,
 the response time, the certificate expiration, the body and many others. The icing on top is that each of these health
-checks can be paired with alerting via Slack, PagerDuty and even Twilio.
+checks can be paired with alerting via Slack, PagerDuty, Discord and even Twilio.
 
 I personally deploy it in my Kubernetes cluster and let it monitor the status of my
 core applications: https://status.twinnation.org/
 
+<details>
+  <summary><b>Quick start</b></summary>
+
+```
+docker run -p 8080:8080 --name gatus twinproduction/gatus
+```
+For more details, see [Usage](#usage)
+</details>
+
 
 ## Table of Contents
-
 - [Why Gatus?](#why-gatus)
 - [Features](#features)
 - [Usage](#usage)
@@ -25,19 +34,25 @@ core applications: https://status.twinnation.org/
   - [Conditions](#conditions)
     - [Placeholders](#placeholders)
     - [Functions](#functions)
+  - [Storage](#storage)
+  - [Client configuration](#client-configuration)
   - [Alerting](#alerting)
-    - [Configuring Slack alerts](#configuring-slack-alerts)
     - [Configuring Discord alerts](#configuring-discord-alerts)
-    - [Configuring PagerDuty alerts](#configuring-pagerduty-alerts)
-    - [Configuring Twilio alerts](#configuring-twilio-alerts)
     - [Configuring Mattermost alerts](#configuring-mattermost-alerts)
-    - [Configuring Messagebird alerts](#configuring-messagebird-alerts)    
+    - [Configuring Messagebird alerts](#configuring-messagebird-alerts)
+    - [Configuring PagerDuty alerts](#configuring-pagerduty-alerts)
+    - [Configuring Slack alerts](#configuring-slack-alerts)
+    - [Configuring Teams alerts](#configuring-teams-alerts)
     - [Configuring Telegram alerts](#configuring-telegram-alerts)
+    - [Configuring Twilio alerts](#configuring-twilio-alerts)
     - [Configuring custom alerts](#configuring-custom-alerts)
+    - [Setting a default alert](#setting-a-default-alert)
   - [Kubernetes (ALPHA)](#kubernetes-alpha)
     - [Auto Discovery](#auto-discovery)
-    - [Deploying](#deploying)
-- [Docker](#docker)
+- [Deployment](#deployment)
+  - [Docker](#docker)
+  - [Helm Chart](#helm-chart)
+  - [Terraform](#terraform)
 - [Running the tests](#running-the-tests)
 - [Using in Production](#using-in-production)
 - [FAQ](#faq)
@@ -47,17 +62,20 @@ core applications: https://status.twinnation.org/
   - [Monitoring a TCP service](#monitoring-a-tcp-service)
   - [Monitoring a service using ICMP](#monitoring-a-service-using-icmp)
   - [Monitoring a service using DNS queries](#monitoring-a-service-using-dns-queries)
+  - [Monitoring a service using STARTTLS](#monitoring-a-service-using-starttls)
   - [Basic authentication](#basic-authentication)
   - [disable-monitoring-lock](#disable-monitoring-lock)
   - [Reloading configuration on the fly](#reloading-configuration-on-the-fly)
   - [Service groups](#service-groups)
   - [Exposing Gatus on a custom port](#exposing-gatus-on-a-custom-port)
-  - [Uptime Badges (ALPHA)](#uptime-badges)
-  - [API](#API)
-
+  - [Badges](#badges)
+    - [Uptime](#uptime)
+    - [Response time](#response-time)
+  - [API](#api)
+  - [High level design overview](#high-level-design-overview)
+- [Sponsors](#sponsors)
 
 ## Why Gatus?
-
 Before getting into the specifics, I want to address the most common question:
 > Why would I use Gatus when I can just use Prometheus’ Alertmanager, Cloudwatch or even Splunk?
 
@@ -76,20 +94,19 @@ fixing the issue before they even know about it.
 
 
 ## Features
+![Gatus dark mode](.github/assets/dark-mode.png)
 
 The main features of Gatus are:
 - **Highly flexible health check conditions**: While checking the response status may be enough for some use cases, Gatus goes much further and allows you to add conditions on the response time, the response body and even the IP address.
 - **Ability to use Gatus for user acceptance tests**: Thanks to the point above, you can leverage this application to create automated user acceptance tests.
 - **Very easy to configure**: Not only is the configuration designed to be as readable as possible, it's also extremely easy to add a new service or a new endpoint to monitor.
-- **Alerting**: While having a pretty visual dashboard is useful to keep track of the state of your application(s), you probably don't want to stare at it all day. Thus, notifications via Slack, Mattermost, Messagebird, PagerDuty and Twilio are supported out of the box with the ability to configure a custom alerting provider for any needs you might have, whether it be a different provider or a custom application that manages automated rollbacks. 
+- **Alerting**: While having a pretty visual dashboard is useful to keep track of the state of your application(s), you probably don't want to stare at it all day. Thus, notifications via Slack, Mattermost, Messagebird, PagerDuty, Twilio and Teams are supported out of the box with the ability to configure a custom alerting provider for any needs you might have, whether it be a different provider or a custom application that manages automated rollbacks.
 - **Metrics**
 - **Low resource consumption**: As with most Go applications, the resource footprint that this application requires is negligibly small.
-- **GitHub uptime badges**: ![Uptime 1h](https://status.twinnation.org/api/v1/badges/uptime/1h/core_twinnation-external.svg) ![Uptime 24h](https://status.twinnation.org/api/v1/badges/uptime/24h/core_twinnation-external.svg) ![Uptime 7d](https://status.twinnation.org/api/v1/badges/uptime/7d/core_twinnation-external.svg)
-- **Service auto discovery in Kubernetes** (ALPHA)
+- **[Badges](#badges)**: ![Uptime 7d](https://status.twinnation.org/api/v1/badges/uptime/7d/core_website-external.svg) ![Response time 24h](https://status.twinnation.org/api/v1/services/core_website-external/response-times/24h/badge.svg)
 
 
 ## Usage
-
 By default, the configuration file is expected to be at `config/config.yaml`.
 
 You can specify a custom path by setting the `GATUS_CONFIG_FILE` environment variable.
@@ -119,52 +136,50 @@ This example would look like this:
 
 Note that you can also use environment variables in the configuration file (e.g. `$DOMAIN`, `${DOMAIN}`)
 
+If you want to test it locally, see [Docker](#docker).
+
 
 ## Configuration
-
 | Parameter                                | Description                                                                   | Default        |
 |:---------------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
-| `debug`                                  | Whether to enable debug logs                                                  | `false`        |
-| `metrics`                                | Whether to expose metrics at /metrics                                         | `false`        |
-| `storage`                                | Storage configuration                                                         | `{}`           |
-| `storage.file`                           | File to persist the data in. If not set, storage is in-memory only.           | `""`           |
-| `services`                               | List of services to monitor                                                   | Required `[]`  |
+| `debug`                                  | Whether to enable debug logs.                                                 | `false`        |
+| `metrics`                                | Whether to expose metrics at /metrics.                                        | `false`        |
+| `storage`                                | Storage configuration. <br />See [Storage](#storage).                               | `{}`           |
+| `services`                               | List of services to monitor.                                                  | Required `[]`  |
 | `services[].name`                        | Name of the service. Can be anything.                                         | Required `""`  |
-| `services[].group`                       | Group name. Used to group multiple services together on the dashboard. See [Service groups](#service-groups). | `""`           |
-| `services[].url`                         | URL to send the request to                                                    | Required `""`  |
-| `services[].method`                      | Request method                                                                | `GET`          |
-| `services[].insecure`                    | Whether to skip verifying the server's certificate chain and host name        | `false`        |
-| `services[].conditions`                  | Conditions used to determine the health of the service. See [Conditions](#conditions). | `[]`           |
-| `services[].interval`                    | Duration to wait between every status check                                   | `60s`          |
-| `services[].graphql`                     | Whether to wrap the body in a query param (`{"query":"$body"}`)               | `false`        |
-| `services[].body`                        | Request body                                                                  | `""`           |
-| `services[].headers`                     | Request headers                                                               | `{}`           |
-| `services[].dns`                         | Configuration for a service of type DNS. See [Monitoring a service using DNS queries](#monitoring-a-service-using-dns-queries). | `""`           |
-| `services[].dns.query-type`              | Query type for DNS service                                                    | `""`           |
-| `services[].dns.query-name`              | Query name for DNS service                                                    | `""`           |
-| `services[].alerts[].type`               | Type of alert. Valid types: `slack`, `discord`, `pagerduty`, `twilio`, `mattermost`, `messagebird`, `custom` | Required `""`  |
-| `services[].alerts[].enabled`            | Whether to enable the alert                                                   | `false`        |
-| `services[].alerts[].failure-threshold`  | Number of failures in a row needed before triggering the alert                | `3`            |
-| `services[].alerts[].success-threshold`  | Number of successes in a row before an ongoing incident is marked as resolved | `2`            |
-| `services[].alerts[].send-on-resolved`   | Whether to send a notification once a triggered alert is marked as resolved   | `false`        |
-| `services[].alerts[].description`        | Description of the alert. Will be included in the alert sent                  | `""`           |
-| `alerting`                               | Configuration for alerting. See [Alerting](#alerting).                        | `{}`           |
-| `security`                               | Security configuration                                                        | `{}`           |
-| `security.basic`                         | Basic authentication security configuration                                   | `{}`           |
-| `security.basic.username`                | Username for Basic authentication                                             | Required `""`  |
-| `security.basic.password-sha512`         | Password's SHA512 hash for Basic authentication                               | Required `""`  |
-| `disable-monitoring-lock`                | Whether to [disable the monitoring lock](#disable-monitoring-lock)            | `false`        |
-| `skip-invalid-config-update`             | Whether to ignore invalid configuration update. See [Reloading configuration on the fly](#reloading-configuration-on-the-fly).
-| `web`                                    | Web configuration                                                             | `{}`           |
-| `web.address`                            | Address to listen on                                                          | `0.0.0.0`      |
-| `web.port`                               | Port to listen on                                                             | `8080`         |
+| `services[].group`                       | Group name. Used to group multiple services together on the dashboard. <br />See [Service groups](#service-groups). | `""`           |
+| `services[].url`                         | URL to send the request to.                                                   | Required `""`  |
+| `services[].method`                      | Request method.                                                               | `GET`          |
+| `services[].conditions`                  | Conditions used to determine the health of the service. <br />See [Conditions](#conditions). | `[]`           |
+| `services[].interval`                    | Duration to wait between every status check.                                  | `60s`          |
+| `services[].graphql`                     | Whether to wrap the body in a query param (`{"query":"$body"}`).              | `false`        |
+| `services[].body`                        | Request body.                                                                 | `""`           |
+| `services[].headers`                     | Request headers.                                                              | `{}`           |
+| `services[].dns`                         | Configuration for a service of type DNS. <br />See [Monitoring a service using DNS queries](#monitoring-a-service-using-dns-queries). | `""`           |
+| `services[].dns.query-type`              | Query type for DNS service.                                                   | `""`           |
+| `services[].dns.query-name`              | Query name for DNS service.                                                   | `""`           |
+| `services[].alerts[].type`               | Type of alert. Valid types: `slack`, `discord`, `pagerduty`, `twilio`, `mattermost`, `messagebird`, `teams` `custom`. | Required `""`  |
+| `services[].alerts[].enabled`            | Whether to enable the alert.                                                  | `false`        |
+| `services[].alerts[].failure-threshold`  | Number of failures in a row needed before triggering the alert.               | `3`            |
+| `services[].alerts[].success-threshold`  | Number of successes in a row before an ongoing incident is marked as resolved. | `2`            |
+| `services[].alerts[].send-on-resolved`   | Whether to send a notification once a triggered alert is marked as resolved.  | `false`        |
+| `services[].alerts[].description`        | Description of the alert. Will be included in the alert sent.                 | `""`           |
+| `services[].client`                      | Client configuration. <br />See [Client configuration](#client-configuration).      | `{}`           |
+| `alerting`                               | Configuration for alerting. <br />See [Alerting](#alerting).                        | `{}`           |
+| `security`                               | Security configuration.                                                       | `{}`           |
+| `security.basic`                         | Basic authentication security configuration.                                  | `{}`           |
+| `security.basic.username`                | Username for Basic authentication.                                            | Required `""`  |
+| `security.basic.password-sha512`         | Password's SHA512 hash for Basic authentication.                              | Required `""`  |
+| `disable-monitoring-lock`                | Whether to [disable the monitoring lock](#disable-monitoring-lock).           | `false`        |
+| `skip-invalid-config-update`             | Whether to ignore invalid configuration update. <br />See [Reloading configuration on the fly](#reloading-configuration-on-the-fly). | `false` |
+| `web`                                    | Web configuration.                                                            | `{}`           |
+| `web.address`                            | Address to listen on.                                                         | `0.0.0.0`      |
+| `web.port`                               | Port to listen on.                                                            | `8080`         |
 
-- For Kubernetes configuration, see [Kubernetes](#kubernetes-alpha).
-- For alerting configuration, see [Alerting](#alerting).
+For Kubernetes configuration, see [Kubernetes](#kubernetes-alpha).
 
 
 ### Conditions
-
 Here are some examples of conditions you can use:
 
 | Condition                    | Description                                             | Passing values             | Failing values |
@@ -191,7 +206,6 @@ Here are some examples of conditions you can use:
 
 
 #### Placeholders
-
 | Placeholder                | Description                                                     | Example of resolved value |
 |:-------------------------- |:--------------------------------------------------------------- |:------------------------- |
 | `[STATUS]`                 | Resolves into the HTTP status of the request                    | 404
@@ -204,7 +218,6 @@ Here are some examples of conditions you can use:
 
 
 #### Functions
-
 | Function   | Description                                                                                                      | Example                    |
 |:-----------|:---------------------------------------------------------------------------------------------------------------- |:-------------------------- |
 | `len`      | Returns the length of the object/slice. Works only with the `[BODY]` placeholder.                                | `len([BODY].username) > 8`
@@ -215,83 +228,86 @@ Here are some examples of conditions you can use:
 **NOTE**: Use `pat` only when you need to. `[STATUS] == pat(2*)` is a lot more expensive than `[STATUS] < 300`.
 
 
-### Alerting
+### Storage
+| Parameter          | Description                                                                            | Default        |
+|:------------------ |:-------------------------------------------------------------------------------------- |:-------------- |
+| `storage`          | Storage configuration                                                                  | `{}`           |
+| `storage.file`     | File to persist the data in. If the type is `memory`, data is persisted on interval.   | `""`           |
+| `storage.type`     | Type of storage. Valid types: `memory`, `sqlite`.                                      | `"memory"`     |
 
-Gatus supports multiple alerting providers, such as Slack and PagerDuty, and supports different alerts for each
-individual services with configurable descriptions and thresholds.
-
-Note that if an alerting provider is not configured properly, all alerts configured with the provider's type will be
-ignored.
-
-| Parameter                                | Description                                                                   | Default        |
-|:---------------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
-| `alerting.slack`                         | Configuration for alerts of type `slack`                                      | `{}`           |
-| `alerting.slack.webhook-url`             | Slack Webhook URL                                                             | Required `""`  |
-| `alerting.discord`                       | Configuration for alerts of type `discord`                                    | `{}`           |
-| `alerting.discord.webhook-url`           | Discord Webhook URL                                                           | Required `""`  |
-| `alerting.pagerduty`                     | Configuration for alerts of type `pagerduty`                                  | `{}`           |
-| `alerting.pagerduty.integration-key`     | PagerDuty Events API v2 integration key.                                      | Required `""`  |
-| `alerting.twilio`                        | Settings for alerts of type `twilio`                                          | `{}`           |
-| `alerting.twilio.sid`                    | Twilio account SID                                                            | Required `""`  |
-| `alerting.twilio.token`                  | Twilio auth token                                                             | Required `""`  |
-| `alerting.twilio.from`                   | Number to send Twilio alerts from                                             | Required `""`  |
-| `alerting.twilio.to`                     | Number to send twilio alerts to                                               | Required `""`  |
-| `alerting.mattermost`                    | Configuration for alerts of type `mattermost`                                 | `{}`           |
-| `alerting.mattermost.webhook-url`        | Mattermost Webhook URL                                                        | Required `""`  |
-| `alerting.mattermost.insecure`           | Whether to skip verifying the server's certificate chain and host name        | `false`        |
-| `alerting.messagebird`                   | Settings for alerts of type `messagebird`                                     | `{}`           |
-| `alerting.messagebird.access-key`        | Messagebird access key                                                        | Required `""`  |
-| `alerting.messagebird.originator`        | The sender of the message                                                     | Required `""`  |
-| `alerting.messagebird.recipients`        | The recipients of the message                                                 | Required `""`  |
-| `alerting.telegram`                      | Configuration for alerts of type `telegram`                                   | `{}`           |
-| `alerting.telegram.token`                | Telegram Bot Token                                                            | Required `""`  |
-| `alerting.telegram.id`                   | Telegram User ID                                                              | Required `""`  |
-| `alerting.custom`                        | Configuration for custom actions on failure or alerts                         | `{}`           |
-| `alerting.custom.url`                    | Custom alerting request url                                                   | Required `""`  |
-| `alerting.custom.method`                 | Request method                                                                | `GET`          |
-| `alerting.custom.insecure`               | Whether to skip verifying the server's certificate chain and host name        | `false`        |
-| `alerting.custom.body`                   | Custom alerting request body.                                                 | `""`           |
-| `alerting.custom.headers`                | Custom alerting request headers                                               | `{}`           |
-| `alerting.*.default-alert.enabled`            | Whether to enable the alert                                                   | N/A       |
-| `alerting.*.default-alert.failure-threshold`  | Number of failures in a row needed before triggering the alert                | N/A       |
-| `alerting.*.default-alert.success-threshold`  | Number of successes in a row before an ongoing incident is marked as resolved | N/A       |
-| `alerting.*.default-alert.send-on-resolved`   | Whether to send a notification once a triggered alert is marked as resolved   | N/A       |
-| `alerting.*.default-alert.description`        | Description of the alert. Will be included in the alert sent                  | N/A       |
-
-
-#### Configuring Slack alerts
-
+- If `storage.type` is `memory` (default) and `storage.file` is set to a non-blank value.
+  Furthermore, the data is periodically persisted, but everything remains in memory.
+- If `storage.type` is `sqlite`, `storage.file` must not be blank.
 ```yaml
-alerting:
-  slack: 
-    webhook-url: "https://hooks.slack.com/services/**********/**********/**********"
+storage:
+  type: sqlite
+  file: data.db
+```
+See [examples/docker-compose-sqlite-storage](examples/docker-compose-sqlite-storage) for an example.
 
+
+### Client configuration
+In order to support a wide range of environments, each monitored service has a unique configuration for 
+the client used to send the request.
+
+| Parameter                | Description                                                                   | Default        |
+|:-------------------------|:----------------------------------------------------------------------------- |:-------------- |
+| `client.insecure`        | Whether to skip verifying the server's certificate chain and host name.       | `false`        |
+| `client.ignore-redirect` | Whether to ignore redirects (true) or follow them (false, default).           | `false`        |
+| `client.timeout`         | Duration before timing out.                                                   | `10s`          |
+
+Note that some of these parameters are ignored based on the type of service. For instance, there's no certificate involved
+in ICMP requests (ping), therefore, setting `client.insecure` to `true` for a service of that type will not do anything.
+
+This default configuration is as follows:
+```yaml
+client:
+  insecure: false
+  ignore-redirect: false
+  timeout: 10s
+```
+Note that this configuration is only available under `services[]`, `alerting.mattermost` and `alerting.custom`.
+
+Here's an example with the client configuration under `service[]`:
+```yaml
 services:
   - name: twinnation
     url: "https://twinnation.org/health"
-    interval: 30s
-    alerts:
-      - type: slack
-        enabled: true
-        description: "healthcheck failed 3 times in a row"
-        send-on-resolved: true
-      - type: slack
-        enabled: true
-        failure-threshold: 5
-        description: "healthcheck failed 5 times in a row"
-        send-on-resolved: true
+    client:
+      insecure: false
+      ignore-redirect: false
+      timeout: 10s
     conditions:
       - "[STATUS] == 200"
-      - "[BODY].status == UP"
-      - "[RESPONSE_TIME] < 300"
 ```
 
-Here's an example of what the notifications look like:
 
-![Slack notifications](.github/assets/slack-alerts.png)
+### Alerting
+Gatus supports multiple alerting providers, such as Slack and PagerDuty, and supports different alerts for each
+individual services with configurable descriptions and thresholds.
+
+Note that if an alerting provider is not properly configured, all alerts configured with the provider's type will be
+ignored.
+
+| Parameter              | Description                                                                                                            | Default        |
+|:-----------------------|:---------------------------------------------------------------------------------------------------------------------- |:-------|
+| `alerting.discord`     | Configuration for alerts of type `discord`. <br />See [Configuring Discord alerts](#configuring-discord-alerts).             | `{}`   |
+| `alerting.mattermost`  | Configuration for alerts of type `mattermost`. <br />See [Configuring Mattermost alerts](#configuring-mattermost-alerts).   | `{}`   |
+| `alerting.messagebird` | Configuration for alerts of type `messagebird`. <br />See [Configuring Messagebird alerts](#configuring-messagebird-alerts). | `{}`   |
+| `alerting.pagerduty`   | Configuration for alerts of type `pagerduty`. <br />See [Configuring PagerDuty alerts](#configuring-pagerduty-alerts).       | `{}`   |
+| `alerting.slack`       | Configuration for alerts of type `slack`. <br />See [Configuring Slack alerts](#configuring-slack-alerts).                   | `{}`   |
+| `alerting.teams`       | Configuration for alerts of type `teams`. <br />See [Configuring Teams alerts](#configuring-teams-alerts).                   | `{}`   |
+| `alerting.telegram`    | Configuration for alerts of type `telegram`. <br />See [Configuring Telegram alerts](#configuring-telegram-alerts).          | `{}`   |
+| `alerting.twilio`      | Settings for alerts of type `twilio`. <br />See [Configuring Twilio alerts](#configuring-twilio-alerts).                     | `{}`   |
+| `alerting.custom`      | Configuration for custom actions on failure or alerts. <br />See [Configuring Custom alerts](#configuring-custom-alerts).    | `{}`   |
 
 
 #### Configuring Discord alerts
+| Parameter                                | Description                                  | Default        |
+|:---------------------------------------- |:-------------------------------------------- |:-------------- |
+| `alerting.discord`                       | Configuration for alerts of type `discord`   | `{}`           |
+| `alerting.discord.webhook-url`           | Discord Webhook URL                          | Required `""`  |
+| `alerting.discord.default-alert`         | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
 
 ```yaml
 alerting:
@@ -302,24 +318,97 @@ services:
   - name: twinnation
     url: "https://twinnation.org/health"
     interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
     alerts:
       - type: discord
         enabled: true
         description: "healthcheck failed"
         send-on-resolved: true
+```
+
+
+#### Configuring Mattermost alerts
+| Parameter                           | Description                                                                                 | Default        |
+|:----------------------------------- |:------------------------------------------------------------------------------------------- |:-------------- |
+| `alerting.mattermost`               | Configuration for alerts of type `mattermost`                                               | `{}`           |
+| `alerting.mattermost.webhook-url`   | Mattermost Webhook URL                                                                      | Required `""`  |
+| `alerting.mattermost.client`        | Client configuration. <br />See [Client configuration](#client-configuration).              | `{}`           |
+| `alerting.mattermost.default-alert` | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert). | N/A            |
+
+```yaml
+alerting:
+  mattermost: 
+    webhook-url: "http://**********/hooks/**********"
+    client:
+      insecure: true
+
+services:
+  - name: twinnation
+    url: "https://twinnation.org/health"
+    interval: 30s
     conditions:
       - "[STATUS] == 200"
       - "[BODY].status == UP"
       - "[RESPONSE_TIME] < 300"
+    alerts:
+      - type: mattermost
+        enabled: true
+        description: "healthcheck failed"
+        send-on-resolved: true
+```
+
+Here's an example of what the notifications look like:
+
+![Mattermost notifications](.github/assets/mattermost-alerts.png)
+
+
+#### Configuring Messagebird alerts
+| Parameter                            | Description                                                                   | Default        |
+|:-------------------------------------|:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.messagebird`               | Settings for alerts of type `messagebird`                                     | `{}`           |
+| `alerting.messagebird.access-key`    | Messagebird access key                                                        | Required `""`  |
+| `alerting.messagebird.originator`    | The sender of the message                                                     | Required `""`  |
+| `alerting.messagebird.recipients`    | The recipients of the message                                                 | Required `""`  |
+| `alerting.messagebird.default-alert` | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
+
+Example of sending **SMS** text message alert using Messagebird:
+```yaml
+alerting:
+  messagebird:
+    access-key: "..."
+    originator: "31619191918"
+    recipients: "31619191919,31619191920"
+services:
+  - name: twinnation
+    interval: 30s
+    url: "https://twinnation.org/health"
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
+    alerts:
+      - type: messagebird
+        enabled: true
+        failure-threshold: 3
+        send-on-resolved: true
+        description: "healthcheck failed"
 ```
 
 
 #### Configuring PagerDuty alerts
+| Parameter                                | Description                                                                   | Default        |
+|:---------------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.pagerduty`                     | Configuration for alerts of type `pagerduty`                                  | `{}`           |
+| `alerting.pagerduty.integration-key`     | PagerDuty Events API v2 integration key.                                      | Required `""`  |
+| `alerting.pagerduty.default-alert`       | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
 
-It is highly recommended to set `services[].alerts[].send-on-resolved` to `true` for alerts 
-of type `pagerduty`, because unlike other alerts, the operation resulting from setting said 
-parameter to `true` will not create another incident, but mark the incident as resolved on 
-PagerDuty instead. 
+It is highly recommended to set `services[].alerts[].send-on-resolved` to `true` for alerts
+of type `pagerduty`, because unlike other alerts, the operation resulting from setting said
+parameter to `true` will not create another incident, but mark the incident as resolved on
+PagerDuty instead.
 
 ```yaml
 alerting:
@@ -330,6 +419,10 @@ services:
   - name: twinnation
     url: "https://twinnation.org/health"
     interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
     alerts:
       - type: pagerduty
         enabled: true
@@ -337,14 +430,118 @@ services:
         success-threshold: 5
         send-on-resolved: true
         description: "healthcheck failed"
+```
+
+
+#### Configuring Slack alerts
+| Parameter                        | Description                                                                   | Default        |
+|:-------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.slack`                 | Configuration for alerts of type `slack`                                      | `{}`           |
+| `alerting.slack.webhook-url`     | Slack Webhook URL                                                             | Required `""`  |
+| `alerting.slack.default-alert`   | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
+
+```yaml
+alerting:
+  slack: 
+    webhook-url: "https://hooks.slack.com/services/**********/**********/**********"
+
+services:
+  - name: twinnation
+    url: "https://twinnation.org/health"
+    interval: 30s
     conditions:
       - "[STATUS] == 200"
       - "[BODY].status == UP"
       - "[RESPONSE_TIME] < 300"
+    alerts:
+      - type: slack
+        enabled: true
+        description: "healthcheck failed 3 times in a row"
+        send-on-resolved: true
+      - type: slack
+        enabled: true
+        failure-threshold: 5
+        description: "healthcheck failed 5 times in a row"
+        send-on-resolved: true
 ```
+
+Here's an example of what the notifications look like:
+
+![Slack notifications](.github/assets/slack-alerts.png)
+
+
+#### Configuring Teams alerts
+| Parameter                        | Description                                                                   | Default        |
+|:-------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.teams`                 | Configuration for alerts of type `teams`                                      | `{}`           |
+| `alerting.teams.webhook-url`     | Teams Webhook URL                                                             | Required `""`  |
+| `alerting.teams.default-alert`   | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
+
+```yaml
+alerting:
+  teams:
+    webhook-url: "https://********.webhook.office.com/webhookb2/************"
+
+services:
+  - name: twinnation
+    url: "https://twinnation.org/health"
+    interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
+    alerts:
+      - type: teams
+        enabled: true
+        description: "healthcheck failed"
+        send-on-resolved: true
+```
+
+Here's an example of what the notifications look like:
+
+![Teams notifications](.github/assets/teams-alerts.png)
+
+#### Configuring Telegram alerts
+| Parameter                           | Description                                                                   | Default        |
+|:----------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.telegram`                 | Configuration for alerts of type `telegram`                                   | `{}`           |
+| `alerting.telegram.token`           | Telegram Bot Token                                                            | Required `""`  |
+| `alerting.telegram.id`              | Telegram User ID                                                              | Required `""`  |
+| `alerting.telegram.default-alert`   | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
+
+```yaml
+alerting:
+  telegram: 
+    token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+    id: "0123456789"
+
+services:
+  - name: twinnation
+    url: "https://twinnation.org/health"
+    interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+    alerts:
+      - type: telegram
+        enabled: true
+        send-on-resolved: true
+```
+
+Here's an example of what the notifications look like:
+
+![Telegram notifications](.github/assets/telegram-alerts.png)
 
 
 #### Configuring Twilio alerts
+| Parameter                         | Description                                                                   | Default        |
+|:--------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.twilio`                 | Settings for alerts of type `twilio`                                          | `{}`           |
+| `alerting.twilio.sid`             | Twilio account SID                                                            | Required `""`  |
+| `alerting.twilio.token`           | Twilio auth token                                                             | Required `""`  |
+| `alerting.twilio.from`            | Number to send Twilio alerts from                                             | Required `""`  |
+| `alerting.twilio.to`              | Number to send twilio alerts to                                               | Required `""`  |
+| `alerting.twilio.default-alert`   | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
 
 ```yaml
 alerting:
@@ -358,101 +555,29 @@ services:
   - name: twinnation
     interval: 30s
     url: "https://twinnation.org/health"
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
     alerts:
       - type: twilio
         enabled: true
         failure-threshold: 5
         send-on-resolved: true
         description: "healthcheck failed"
-    conditions:
-      - "[STATUS] == 200"
-      - "[BODY].status == UP"
-      - "[RESPONSE_TIME] < 300"
 ```
-
-
-#### Configuring Mattermost alerts
-
-```yaml
-alerting:
-  mattermost: 
-    webhook-url: "http://**********/hooks/**********"
-    insecure: true
-
-services:
-  - name: twinnation
-    url: "https://twinnation.org/health"
-    interval: 30s
-    alerts:
-      - type: mattermost
-        enabled: true
-        description: "healthcheck failed"
-        send-on-resolved: true
-    conditions:
-      - "[STATUS] == 200"
-      - "[BODY].status == UP"
-      - "[RESPONSE_TIME] < 300"
-```
-
-Here's an example of what the notifications look like:
-
-![Mattermost notifications](.github/assets/mattermost-alerts.png)
-
-
-#### Configuring Messagebird alerts
-
-Example of sending **SMS** text message alert using Messagebird:
-
-```yaml
-alerting:
-  messagebird:
-    access-key: "..."
-    originator: "31619191918"
-    recipients: "31619191919,31619191920"
-services:
-  - name: twinnation
-    interval: 30s
-    url: "https://twinnation.org/health"
-    alerts:
-      - type: messagebird
-        enabled: true
-        failure-threshold: 3
-        send-on-resolved: true
-        description: "healthcheck failed"
-    conditions:
-      - "[STATUS] == 200"
-      - "[BODY].status == UP"
-      - "[RESPONSE_TIME] < 300"
-```
-
-
-#### Configuring Telegram alerts
-
-```yaml
-alerting:
-  telegram: 
-    token: "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-    id: "0123456789"
-
-services:
-  - name: twinnation
-    url: "https://twinnation.org/health"
-    interval: 30s
-    alerts:
-      - type: telegram
-        enabled: true
-        send-on-resolved: true
-    conditions:
-      - "[STATUS] == 200"
-      - "[BODY].status == UP"
-```
-
-Here's an example of what the notifications look like:
-
-![Telegram notifications](.github/assets/telegram-alerts.png)
 
 
 #### Configuring custom alerts
+| Parameter                         | Description                                                                   | Default        |
+|:----------------------------------|:----------------------------------------------------------------------------- |:-------------- |
+| `alerting.custom`                 | Configuration for custom actions on failure or alerts                         | `{}`           |
+| `alerting.custom.url`             | Custom alerting request url                                                   | Required `""`  |
+| `alerting.custom.method`          | Request method                                                                | `GET`          |
+| `alerting.custom.body`            | Custom alerting request body.                                                 | `""`           |
+| `alerting.custom.headers`         | Custom alerting request headers                                               | `{}`           |
+| `alerting.custom.client`          | Client configuration. <br />See [Client configuration](#client-configuration).      | `{}`           |
+| `alerting.custom.default-alert`   | Default alert configuration. <br />See [Setting a default alert](#setting-a-default-alert) | N/A       |
 
 While they're called alerts, you can use this feature to call anything. 
 
@@ -475,7 +600,6 @@ alerting:
   custom:
     url: "https://hooks.slack.com/services/**********/**********/**********"
     method: "POST"
-    insecure: true
     body: |
       {
         "text": "[ALERT_TRIGGERED_OR_RESOLVED]: [SERVICE_NAME] - [ALERT_DESCRIPTION]"
@@ -484,6 +608,10 @@ services:
   - name: twinnation
     url: "https://twinnation.org/health"
     interval: 30s
+    conditions:
+      - "[STATUS] == 200"
+      - "[BODY].status == UP"
+      - "[RESPONSE_TIME] < 300"
     alerts:
       - type: custom
         enabled: true
@@ -491,10 +619,6 @@ services:
         success-threshold: 3
         send-on-resolved: true
         description: "healthcheck failed"
-    conditions:
-      - "[STATUS] == 200"
-      - "[BODY].status == UP"
-      - "[RESPONSE_TIME] < 300"
 ```
 
 Note that you can customize the resolved values for the `[ALERT_TRIGGERED_OR_RESOLVED]` placeholder like so:
@@ -510,7 +634,14 @@ As a result, the `[ALERT_TRIGGERED_OR_RESOLVED]` in the body of first example of
 `partial_outage` when an alert is triggered and `operational` when an alert is resolved.
 
 
-#### Setting a default provider alert
+#### Setting a default alert
+| Parameter                                     | Description                                                                   | Default |
+|:----------------------------------------------|:------------------------------------------------------------------------------|:--------|
+| `alerting.*.default-alert.enabled`            | Whether to enable the alert                                                   | N/A     |
+| `alerting.*.default-alert.failure-threshold`  | Number of failures in a row needed before triggering the alert                | N/A     |
+| `alerting.*.default-alert.success-threshold`  | Number of successes in a row before an ongoing incident is marked as resolved | N/A     |
+| `alerting.*.default-alert.send-on-resolved`   | Whether to send a notification once a triggered alert is marked as resolved   | N/A     |
+| `alerting.*.default-alert.description`        | Description of the alert. Will be included in the alert sent                  | N/A     |
 
 While you can specify the alert configuration directly in the service definition, it's tedious and may lead to a very
 long configuration file.
@@ -533,24 +664,26 @@ As a result, your service configuration looks a lot tidier:
 services:
   - name: example
     url: "https://example.org"
-    alerts:
-      - type: slack
     conditions:
       - "[STATUS] == 200"
+    alerts:
+      - type: slack
 
   - name: other-example
     url: "https://example.com"
-    alerts:
-      - type: slack
     conditions:
       - "[STATUS] == 200"
+    alerts:
+      - type: slack
 ```
 
 It also allows you to do things like this:
 ```yaml
 services:
-  - name: twinnation
-    url: "https://twinnation.org/health"
+  - name: example
+    url: "https://example.org"
+    conditions:
+      - "[STATUS] == 200"
     alerts:
       - type: slack
         failure-threshold: 5
@@ -558,22 +691,53 @@ services:
         failure-threshold: 10
       - type: slack
         failure-threshold: 15
+```
+
+Of course, you can also mix alert types:
+```yaml
+alerting:
+  slack:
+    webhook-url: "https://hooks.slack.com/services/**********/**********/**********"
+    default-alert:
+      enabled: true
+      failure-threshold: 3
+  pagerduty:
+    integration-key: "********************************"
+    default-alert:
+      enabled: true
+      failure-threshold: 5
+
+services:
+  - name: service-1
+    url: "https://example.org"
     conditions:
       - "[STATUS] == 200"
+    alerts:
+      - type: slack
+      - type: pagerduty
+
+  - name: service-2
+    url: "https://example.org"
+    conditions:
+      - "[STATUS] == 200"
+    alerts:
+      - type: slack
+      - type: pagerduty
 ```
 
 
 ### Kubernetes (ALPHA)
-
 > **WARNING**: This feature is in ALPHA. This means that it is very likely to change in the near future, which means that
 > while you can use this feature as you see fit, there may be breaking changes in future releases.
+> 
+> **NOTICE**: This feature may be removed. To give your opinion on the subject, see https://github.com/TwinProduction/gatus/discussions/135. 
 
 | Parameter                                   | Description                                                                   | Default        |
 |:------------------------------------------- |:----------------------------------------------------------------------------- |:-------------- |
 | `kubernetes`                                | Kubernetes configuration                                                      | `{}`           |
 | `kubernetes.auto-discover`                  | Whether to enable auto discovery                                              | `false`        |
 | `kubernetes.cluster-mode`                   | Cluster mode to use for authenticating. Supported values: `in`, `out`         | Required `""`  |
-| `kubernetes.service-template`               | Service template. See `services[]` in [Configuration](#configuration)         | Required `nil` |
+| `kubernetes.service-template`               | Service template. <br />See `services[]` in [Configuration](#configuration)         | Required `nil` |
 | `kubernetes.excluded-service-suffixes`      | List of service suffixes to not monitor (e.g. `canary`)                       | `[]`           |
 | `kubernetes.namespaces`                     | List of configurations for the namespaces from which services will be discovered | `[]`        |
 | `kubernetes.namespaces[].name`              | Namespace name                                                                | Required `""`  |
@@ -583,7 +747,6 @@ services:
 
 
 #### Auto Discovery
-
 Auto discovery works by reading all `Service` resources from the configured `namespaces` and appending the `hostname-suffix` as 
 well as the configured `target-path` to the service name and making an HTTP call.
 
@@ -622,15 +785,21 @@ Note that `hostname-suffix` could also be something like `.yourdomain.com`, in w
 monitored would be `potato.example.com/health`, assuming you have a service named `potato` and a matching ingress
 to map `potato.example.com` to the `potato` service.
 
-#### Deploying
-
-See [example/kubernetes-with-auto-discovery](example/kubernetes-with-auto-discovery)
+For a full example, see [examples/kubernetes-with-auto-discovery](examples/kubernetes-with-auto-discovery)
 
 
-## Docker
+## Deployment
+Many examples can be found in the [examples](examples) folder, but this section will focus on the most popular ways of deploying Gatus.
+
+
+### Docker
+To run Gatus locally with Docker:
+```
+docker run -p 8080:8080 --name gatus twinproduction/gatus
+```
 
 Other than using one of the examples provided in the `examples` folder, you can also try it out locally by 
-creating a configuration file - we'll call it `config.yaml` for this example - and running the following 
+creating a configuration file, we'll call it `config.yaml` for this example, and running the following 
 command:
 ```
 docker run -p 8080:8080 --mount type=bind,source="$(pwd)"/config.yaml,target=/config/config.yaml --name gatus twinproduction/gatus
@@ -647,22 +816,37 @@ docker build . -t twinproduction/gatus
 ```
 
 
-## Running the tests
+### Helm Chart
+[Helm](https://helm.sh) must be installed to use the chart.
+Please refer to Helm's [documentation](https://helm.sh/docs/) to get started.
 
+Once Helm is set up properly, add the repository as follows:
+
+```console
+helm repo add gatus https://avakarev.github.io/gatus-chart
+```
+
+To get more details, please check chart's [configuration](https://github.com/avakarev/gatus-chart#configuration)
+and [helmfile example](https://github.com/avakarev/gatus-chart#helmfileyaml-example)
+
+
+### Terraform
+Gatus can be deployed on Terraform by using the following module: [terraform-kubernetes-gatus](https://github.com/TwinProduction/terraform-kubernetes-gatus).
+
+
+
+## Running the tests
 ```
 go test ./... -mod vendor
 ```
 
 
 ## Using in Production
-
-See the [example](example) folder.
+See the [Deployment](#deployment) section.
 
 
 ## FAQ
-
 ### Sending a GraphQL request
-
 By setting `services[].graphql` to true, the body will automatically be wrapped by the standard GraphQL `query` parameter.
 
 For instance, the following configuration:
@@ -693,9 +877,8 @@ will send a `POST` request to `http://localhost:8080/playground` with the follow
 
 
 ### Recommended interval
-
-**NOTE**: This does not _really_ apply if `disable-monitoring-lock` is set to `true`, as the monitoring lock is what
-tells Gatus to only evaluate one service at a time.
+> **NOTE**: This does not _really_ apply if `disable-monitoring-lock` is set to `true`, as the monitoring lock is what
+> tells Gatus to only evaluate one service at a time.
 
 To ensure that Gatus provides reliable and accurate results (i.e. response time), Gatus only evaluates one service at a time
 In other words, even if you have multiple services with the exact same interval, they will not execute at the same time.
@@ -705,7 +888,7 @@ such as 1ms. You'll notice that the response time does not fluctuate - that is b
 different goroutines, there's a global lock that prevents multiple services from running at the same time.
 
 Unfortunately, there is a drawback. If you have a lot of services, including some that are very slow or prone to time out (the default
-time out is 10s for HTTP and 5s for TCP), then it means that for the entire duration of the request, no other services can be evaluated.
+timeout is 10s), then it means that for the entire duration of the request, no other services can be evaluated.
 
 **This does mean that Gatus will be unable to evaluate the health of other services**. 
 The interval does not include the duration of the request itself, which means that if a service has an interval of 30s 
@@ -725,15 +908,16 @@ simple health checks used for alerting (PagerDuty/Twilio) to `30s`.
 
 
 ### Default timeouts
-
 | Protocol | Timeout |
 |:-------- |:------- |
 | HTTP     | 10s
-| TCP      | 5s
+| TCP      | 10s
+| ICMP     | 10s
+
+To modify the timeout, see [Client configuration](#client-configuration).
 
 
 ### Monitoring a TCP service
-
 By prefixing `services[].url` with `tcp:\\`, you can monitor TCP services at a very basic level:
 
 ```yaml
@@ -754,7 +938,6 @@ established.
 
 
 ### Monitoring a service using ICMP
-
 By prefixing `services[].url` with `icmp:\\`, you can monitor services at a very basic level using ICMP, or more 
 commonly known as "ping" or "echo":
 
@@ -771,7 +954,6 @@ You can specify a domain prefixed by `icmp://`, or an IP address prefixed by `ic
 
 
 ### Monitoring a service using DNS queries
-
 Defining a `dns` configuration in a service will automatically mark that service as a service of type DNS:
 ```yaml
 services:
@@ -792,10 +974,22 @@ There are two placeholders that can be used in the conditions for services of ty
 `NOERROR`, `FORMERR`, `SERVFAIL`, `NXDOMAIN`, etc.
 
 
+### Monitoring a service using STARTTLS
+If you have an email server that you want to ensure there are no problems with, monitoring it through STARTTLS 
+will serve as a good initial indicator:
+```yaml
+services:
+  - name: starttls-smtp-example
+    url: "starttls://smtp.gmail.com:587"
+    interval: 30m
+    conditions:
+      - "[CONNECTED] == true"
+      - "[CERTIFICATE_EXPIRATION] > 48h"
+```
+
+
 ### Basic authentication
-
 You can require Basic authentication by leveraging the `security.basic` configuration:
-
 ```yaml
 security:
   basic:
@@ -807,7 +1001,6 @@ The example above will require that you authenticate with the username `john.doe
 
 
 ### disable-monitoring-lock
-
 Setting `disable-monitoring-lock` to `true` means that multiple services could be monitored at the same time.
 
 While this behavior wouldn't generally be harmful, conditions using the `[RESPONSE_TIME]` placeholder could be impacted 
@@ -821,7 +1014,6 @@ technically, if you create 100 services with a 1 seconds interval, Gatus will se
 
 
 ### Reloading configuration on the fly
-
 For the sake on convenience, Gatus automatically reloads the configuration on the fly if the loaded configuration file
 is updated while Gatus is running.
 
@@ -845,7 +1037,6 @@ the same as restarting the application.
 
 
 ### Service groups
-
 Service groups are used for grouping multiple services together on the dashboard.
 
 ```yaml
@@ -891,7 +1082,6 @@ The configuration above will result in a dashboard that looks like this:
 
 
 ### Exposing Gatus on a custom port
-
 By default, Gatus is exposed on port `8080`, but you may specify a different port by setting the `web.port` parameter:
 ```yaml
 web:
@@ -905,10 +1095,11 @@ web:
   port: ${PORT}
 ```
 
-### Uptime badges
-![Uptime 1h](https://status.twinnation.org/api/v1/badges/uptime/1h/core_twinnation-external.svg)
-![Uptime 24h](https://status.twinnation.org/api/v1/badges/uptime/24h/core_twinnation-external.svg)
-![Uptime 7d](https://status.twinnation.org/api/v1/badges/uptime/7d/core_twinnation-external.svg)
+### Badges
+### Uptime
+![Uptime 1h](https://status.twinnation.org/api/v1/services/core_website-external/uptimes/1h/badge.svg)
+![Uptime 24h](https://status.twinnation.org/api/v1/services/core_website-external/uptimes/24h/badge.svg)
+![Uptime 7d](https://status.twinnation.org/api/v1/services/core_website-external/uptimes/7d/badge.svg)
 
 Gatus can automatically generate a SVG badge for one of your monitored services.
 This allows you to put badges in your individual services' README or even create your own status page, if you 
@@ -916,48 +1107,69 @@ desire.
 
 The endpoint to generate a badge is the following:
 ```
-/api/v1/badges/uptime/{duration}/{identifier}.svg
+/api/v1/services/{key}/uptimes/{duration}/badge.svg
 ```
 Where:
 - `{duration}` is `7d`, `24h` or `1h`
-- `{identifier}` has the pattern `<GROUP_NAME>_<SERVICE_NAME>.svg` in which both variables have ` `, `/`, `_`, `,` and `.` replaced by `-`.
+- `{key}` has the pattern `<GROUP_NAME>_<SERVICE_NAME>` in which both variables have ` `, `/`, `_`, `,` and `.` replaced by `-`.
 
 For instance, if you want the uptime during the last 24 hours from the service `frontend` in the group `core`, 
 the URL would look like this:
 ```
-http://example.com/api/v1/badges/uptime/7d/core_frontend.svg
+https://example.com/api/v1/services/core_frontend/uptimes/7d/badge.svg
 ```
-
 If you want to display a service that is not part of a group, you must leave the group value empty:
 ```
-http://example.com/api/v1/badges/uptime/7d/_frontend.svg
+https://example.com/api/v1/services/_frontend/uptimes/7d/badge.svg
 ```
-
-Example: ![Uptime 24h](https://status.twinnation.org/api/v1/badges/uptime/24h/core_twinnation-external.svg)
+Example:
 ```
-![Uptime 24h](https://status.twinnation.org/api/v1/badges/uptime/24h/core_twinnation-external.svg)
+![Uptime 24h](https://status.twinnation.org/api/v1/services/core_website-external/uptimes/24h/badge.svg)
 ```
-
 If you'd like to see a visual example of each badges available, you can simply navigate to the service's detail page.
+
+
+### Response time
+![Response time 1h](https://status.twinnation.org/api/v1/services/core_website-external/response-times/1h/badge.svg)
+![Response time 24h](https://status.twinnation.org/api/v1/services/core_website-external/response-times/24h/badge.svg)
+![Response time 7d](https://status.twinnation.org/api/v1/services/core_website-external/response-times/7d/badge.svg)
+
+The endpoint to generate a badge is the following:
+```
+/api/v1/services/{key}/response-times/{duration}/badge.svg
+```
+Where:
+- `{duration}` is `7d`, `24h` or `1h`
+- `{key}` has the pattern `<GROUP_NAME>_<SERVICE_NAME>` in which both variables have ` `, `/`, `_`, `,` and `.` replaced by `-`.
+
 
 ### API
 Gatus provides a simple read-only API which can be queried in order to programmatically determine service status and history.
 
 All services are available via a GET request to the following endpoint:
 ```
-/api/v1/statuses
+/api/v1/services/statuses
 ````
-
-Example: https://status.twinnation.org/api/v1/statuses
+Example: https://status.twinnation.org/api/v1/services/statuses
 
 Specific services can also be queried by using the following pattern:
 ```
-/api/v1/statuses/{group}_{service}
+/api/v1/services/{group}_{service}/statuses
 ```
-
-Example: https://status.twinnation.org/api/v1/statuses/core_twinnation-home
+Example: https://status.twinnation.org/api/v1/services/core_website-home/statuses
 
 Gzip compression will be used if the `Accept-Encoding` HTTP header contains `gzip`.
 
 The API will return a JSON payload with the `Content-Type` response header set to `application/json`. 
 No such header is required to query the API.
+
+
+### High level design overview
+![Gatus diagram](.github/assets/gatus-diagram.png)
+
+
+## Sponsors
+You can find the full list of sponsors [here](https://github.com/sponsors/TwinProduction).
+
+[<img src="https://github.com/math280h.png" width="50" />](https://github.com/math280h)
+[<img src="https://github.com/pyroscope-io.png" width="50" />](https://github.com/pyroscope-io)

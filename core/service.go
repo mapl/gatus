@@ -2,10 +2,12 @@ package core
 
 import (
 	"bytes"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"github.com/TwinProduction/gatus/security"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/TwinProduction/gatus/alerting/alert"
 	"github.com/TwinProduction/gatus/client"
+	"github.com/TwinProduction/gatus/util"
 )
 
 const (
@@ -80,7 +83,12 @@ type Service struct {
 	Alerts []*alert.Alert `yaml:"alerts"`
 
 	// Insecure is whether to skip verifying the server's certificate chain and host name
+	//
+	// deprecated
 	Insecure bool `yaml:"insecure,omitempty"`
+
+	// ClientConfig is the configuration of the client used to communicate with the service's target
+	ClientConfig *client.Config `yaml:"client"`
 
 	// NumberOfFailuresInARow is the number of unsuccessful evaluations in a row
 	NumberOfFailuresInARow int
@@ -92,6 +100,16 @@ type Service struct {
 // ValidateAndSetDefaults validates the service's configuration and sets the default value of fields that have one
 func (service *Service) ValidateAndSetDefaults() error {
 	// Set default values
+	if service.ClientConfig == nil {
+		service.ClientConfig = client.GetDefaultConfig()
+		// XXX: remove the next 3 lines in v3.0.0
+		if service.Insecure {
+			log.Println("WARNING: services[].insecure has been deprecated and will be removed in v3.0.0 in favor of services[].client.insecure")
+			service.ClientConfig.Insecure = true
+		}
+	} else {
+		service.ClientConfig.ValidateAndSetDefaults()
+	}
 	if service.Interval == 0 {
 		service.Interval = 1 * time.Minute
 	}
@@ -138,6 +156,11 @@ func (service *Service) ValidateAndSetDefaults() error {
 	return nil
 }
 
+// Key returns the unique key for the Service
+func (service Service) Key() string {
+	return util.ConvertGroupAndServiceToKey(service.Group, service.Name)
+}
+
 // EvaluateHealth sends a request to the service's URL and evaluates the conditions of the service.
 func (service *Service) EvaluateHealth() *Result {
 	result := &Result{Success: true, Errors: []string{}}
@@ -159,35 +182,20 @@ func (service *Service) EvaluateHealth() *Result {
 	return result
 }
 
-// GetAlertsTriggered returns a slice of alerts that have been triggered
-func (service *Service) GetAlertsTriggered() []alert.Alert {
-	var alerts []alert.Alert
-	if service.NumberOfFailuresInARow == 0 {
-		return alerts
-	}
-	for _, alert := range service.Alerts {
-		if alert.IsEnabled() && alert.FailureThreshold == service.NumberOfFailuresInARow {
-			alerts = append(alerts, *alert)
-			continue
-		}
-	}
-	return alerts
-}
-
 func (service *Service) getIP(result *Result) {
 	if service.DNS != nil {
 		result.Hostname = strings.TrimSuffix(service.URL, ":53")
 	} else {
 		urlObject, err := url.Parse(service.URL)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.AddError(err.Error())
 			return
 		}
 		result.Hostname = urlObject.Hostname()
 	}
 	ips, err := net.LookupIP(result.Hostname)
 	if err != nil {
-		result.Errors = append(result.Errors, err.Error())
+		result.AddError(err.Error())
 		return
 	}
 	result.IP = ips[0].String()
@@ -197,10 +205,12 @@ func (service *Service) call(result *Result) {
 	var request *http.Request
 	var response *http.Response
 	var err error
+	var certificate *x509.Certificate
 	isServiceDNS := service.DNS != nil
 	isServiceTCP := strings.HasPrefix(service.URL, "tcp://")
 	isServiceICMP := strings.HasPrefix(service.URL, "icmp://")
-	isServiceHTTP := !isServiceDNS && !isServiceTCP && !isServiceICMP
+	isServiceStartTLS := strings.HasPrefix(service.URL, "starttls://")
+	isServiceHTTP := !isServiceDNS && !isServiceTCP && !isServiceICMP && !isServiceStartTLS
 	if isServiceHTTP {
 		request = service.buildHTTPRequest()
 	}
@@ -208,21 +218,29 @@ func (service *Service) call(result *Result) {
 	if isServiceDNS {
 		service.DNS.query(service.URL, result)
 		result.Duration = time.Since(startTime)
+	} else if isServiceStartTLS {
+		result.Connected, certificate, err = client.CanPerformStartTLS(strings.TrimPrefix(service.URL, "starttls://"), service.ClientConfig)
+		if err != nil {
+			result.AddError(err.Error())
+			return
+		}
+		result.Duration = time.Since(startTime)
+		result.CertificateExpiration = time.Until(certificate.NotAfter)
 	} else if isServiceTCP {
-		result.Connected = client.CanCreateTCPConnection(strings.TrimPrefix(service.URL, "tcp://"))
+		result.Connected = client.CanCreateTCPConnection(strings.TrimPrefix(service.URL, "tcp://"), service.ClientConfig)
 		result.Duration = time.Since(startTime)
 	} else if isServiceICMP {
-		result.Connected, result.Duration = client.Ping(strings.TrimPrefix(service.URL, "icmp://"))
+		result.Connected, result.Duration = client.Ping(strings.TrimPrefix(service.URL, "icmp://"), service.ClientConfig)
 	} else {
-		response, err = client.GetHTTPClient(service.Insecure).Do(request)
+		response, err = client.GetHTTPClient(service.ClientConfig).Do(request)
 		result.Duration = time.Since(startTime)
 		if err != nil {
-			result.Errors = append(result.Errors, err.Error())
+			result.AddError(err.Error())
 			return
 		}
 		defer response.Body.Close()
 		if response.TLS != nil && len(response.TLS.PeerCertificates) > 0 {
-			certificate := response.TLS.PeerCertificates[0]
+			certificate = response.TLS.PeerCertificates[0]
 			result.CertificateExpiration = time.Until(certificate.NotAfter)
 		}
 		result.HTTPStatus = response.StatusCode
@@ -231,7 +249,7 @@ func (service *Service) call(result *Result) {
 		if service.needsToReadBody() {
 			result.body, err = ioutil.ReadAll(response.Body)
 			if err != nil {
-				result.Errors = append(result.Errors, err.Error())
+				result.AddError(err.Error())
 			}
 		}
 	}

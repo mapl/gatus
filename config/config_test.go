@@ -16,6 +16,8 @@ import (
 	"github.com/TwinProduction/gatus/alerting/provider/slack"
 	"github.com/TwinProduction/gatus/alerting/provider/telegram"
 	"github.com/TwinProduction/gatus/alerting/provider/twilio"
+	"github.com/TwinProduction/gatus/alerting/provider/teams"
+	"github.com/TwinProduction/gatus/client"
 	"github.com/TwinProduction/gatus/core"
 	"github.com/TwinProduction/gatus/k8stest"
 	v1 "k8s.io/api/core/v1"
@@ -40,17 +42,31 @@ func TestParseAndValidateConfigBytes(t *testing.T) {
 	config, err := parseAndValidateConfigBytes([]byte(fmt.Sprintf(`
 storage:
   file: %s
+
 services:
   - name: twinnation
     url: https://twinnation.org/health
     interval: 15s
     conditions:
       - "[STATUS] == 200"
+
   - name: github
     url: https://api.github.com/healthz
+    client:
+      insecure: true
+      ignore-redirect: true
+      timeout: 5s
     conditions:
       - "[STATUS] != 400"
       - "[STATUS] != 500"
+
+  - name: example
+    url: https://example.com/
+    interval: 30m
+    client:
+      insecure: true
+    conditions:
+      - "[STATUS] == 200"
 `, file)))
 	if err != nil {
 		t.Error("expected no error, got", err.Error())
@@ -58,32 +74,74 @@ services:
 	if config == nil {
 		t.Fatal("Config shouldn't have been nil")
 	}
-	if len(config.Services) != 2 {
+	if len(config.Services) != 3 {
 		t.Error("Should have returned two services")
 	}
+
 	if config.Services[0].URL != "https://twinnation.org/health" {
 		t.Errorf("URL should have been %s", "https://twinnation.org/health")
 	}
-	if config.Services[1].URL != "https://api.github.com/healthz" {
-		t.Errorf("URL should have been %s", "https://api.github.com/healthz")
-	}
 	if config.Services[0].Method != "GET" {
-		t.Errorf("Method should have been %s (default)", "GET")
-	}
-	if config.Services[1].Method != "GET" {
 		t.Errorf("Method should have been %s (default)", "GET")
 	}
 	if config.Services[0].Interval != 15*time.Second {
 		t.Errorf("Interval should have been %s", 15*time.Second)
 	}
-	if config.Services[1].Interval != 60*time.Second {
-		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
+	if config.Services[0].ClientConfig.Insecure != client.GetDefaultConfig().Insecure {
+		t.Errorf("ClientConfig.Insecure should have been %v, got %v", true, config.Services[0].ClientConfig.Insecure)
+	}
+	if config.Services[0].ClientConfig.IgnoreRedirect != client.GetDefaultConfig().IgnoreRedirect {
+		t.Errorf("ClientConfig.IgnoreRedirect should have been %v, got %v", true, config.Services[0].ClientConfig.IgnoreRedirect)
+	}
+	if config.Services[0].ClientConfig.Timeout != client.GetDefaultConfig().Timeout {
+		t.Errorf("ClientConfig.Timeout should have been %v, got %v", client.GetDefaultConfig().Timeout, config.Services[0].ClientConfig.Timeout)
 	}
 	if len(config.Services[0].Conditions) != 1 {
 		t.Errorf("There should have been %d conditions", 1)
 	}
+
+	if config.Services[1].URL != "https://api.github.com/healthz" {
+		t.Errorf("URL should have been %s", "https://api.github.com/healthz")
+	}
+	if config.Services[1].Method != "GET" {
+		t.Errorf("Method should have been %s (default)", "GET")
+	}
+	if config.Services[1].Interval != 60*time.Second {
+		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
+	}
+	if !config.Services[1].ClientConfig.Insecure {
+		t.Errorf("ClientConfig.Insecure should have been %v, got %v", true, config.Services[1].ClientConfig.Insecure)
+	}
+	if !config.Services[1].ClientConfig.IgnoreRedirect {
+		t.Errorf("ClientConfig.IgnoreRedirect should have been %v, got %v", true, config.Services[1].ClientConfig.IgnoreRedirect)
+	}
+	if config.Services[1].ClientConfig.Timeout != 5*time.Second {
+		t.Errorf("ClientConfig.Timeout should have been %v, got %v", 5*time.Second, config.Services[1].ClientConfig.Timeout)
+	}
 	if len(config.Services[1].Conditions) != 2 {
 		t.Errorf("There should have been %d conditions", 2)
+	}
+
+	if config.Services[2].URL != "https://example.com/" {
+		t.Errorf("URL should have been %s", "https://example.com/")
+	}
+	if config.Services[2].Method != "GET" {
+		t.Errorf("Method should have been %s (default)", "GET")
+	}
+	if config.Services[2].Interval != 30*time.Minute {
+		t.Errorf("Interval should have been %s, because it is the default value", 30*time.Minute)
+	}
+	if !config.Services[2].ClientConfig.Insecure {
+		t.Errorf("ClientConfig.Insecure should have been %v, got %v", true, config.Services[2].ClientConfig.Insecure)
+	}
+	if config.Services[2].ClientConfig.IgnoreRedirect {
+		t.Errorf("ClientConfig.IgnoreRedirect should have been %v by default, got %v", false, config.Services[2].ClientConfig.IgnoreRedirect)
+	}
+	if config.Services[2].ClientConfig.Timeout != 10*time.Second {
+		t.Errorf("ClientConfig.Timeout should have been %v by default, got %v", 10*time.Second, config.Services[2].ClientConfig.Timeout)
+	}
+	if len(config.Services[2].Conditions) != 1 {
+		t.Errorf("There should have been %d conditions", 1)
 	}
 }
 
@@ -104,17 +162,26 @@ services:
 	if config.Metrics {
 		t.Error("Metrics should've been false by default")
 	}
+	if config.Web.Address != DefaultAddress {
+		t.Errorf("Bind address should have been %s, because it is the default value", DefaultAddress)
+	}
+	if config.Web.Port != DefaultPort {
+		t.Errorf("Port should have been %d, because it is the default value", DefaultPort)
+	}
 	if config.Services[0].URL != "https://twinnation.org/health" {
 		t.Errorf("URL should have been %s", "https://twinnation.org/health")
 	}
 	if config.Services[0].Interval != 60*time.Second {
 		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
 	}
-	if config.Web.Address != DefaultAddress {
-		t.Errorf("Bind address should have been %s, because it is the default value", DefaultAddress)
+	if config.Services[0].ClientConfig.Insecure != client.GetDefaultConfig().Insecure {
+		t.Errorf("ClientConfig.Insecure should have been %v by default, got %v", true, config.Services[0].ClientConfig.Insecure)
 	}
-	if config.Web.Port != DefaultPort {
-		t.Errorf("Port should have been %d, because it is the default value", DefaultPort)
+	if config.Services[0].ClientConfig.IgnoreRedirect != client.GetDefaultConfig().IgnoreRedirect {
+		t.Errorf("ClientConfig.IgnoreRedirect should have been %v by default, got %v", true, config.Services[0].ClientConfig.IgnoreRedirect)
+	}
+	if config.Services[0].ClientConfig.Timeout != client.GetDefaultConfig().Timeout {
+		t.Errorf("ClientConfig.Timeout should have been %v by default, got %v", client.GetDefaultConfig().Timeout, config.Services[0].ClientConfig.Timeout)
 	}
 }
 
@@ -143,11 +210,9 @@ services:
 	if config.Services[0].Interval != 60*time.Second {
 		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
 	}
-
 	if config.Web.Address != "127.0.0.1" {
 		t.Errorf("Bind address should have been %s, because it is specified in config", "127.0.0.1")
 	}
-
 	if config.Web.Port != DefaultPort {
 		t.Errorf("Port should have been %d, because it is the default value", DefaultPort)
 	}
@@ -339,6 +404,8 @@ alerting:
     integration-key: "00000000000000000000000000000000"
   mattermost:
     webhook-url: "http://example.com"
+    client:
+      insecure: true
   messagebird:
     access-key: "1"
     originator: "31619191918"
@@ -351,6 +418,8 @@ alerting:
     token: "5678"
     from: "+1-234-567-8901"
     to: "+1-234-567-8901"
+  teams:
+    webhook-url: "http://example.com"
 
 services:
   - name: twinnation
@@ -375,6 +444,8 @@ services:
         enabled: true
         failure-threshold: 12
         success-threshold: 15
+      - type: teams
+        enabled: true
     conditions:
       - "[STATUS] == 200"
 `))
@@ -401,8 +472,8 @@ services:
 	if config.Services[0].Interval != 60*time.Second {
 		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
 	}
-	if len(config.Services[0].Alerts) != 7 {
-		t.Fatal("There should've been 7 alerts configured")
+	if len(config.Services[0].Alerts) != 8 {
+		t.Fatal("There should've been 8 alerts configured")
 	}
 
 	if config.Services[0].Alerts[0].Type != alert.TypeSlack {
@@ -489,6 +560,19 @@ services:
 	if config.Services[0].Alerts[6].SuccessThreshold != 15 {
 		t.Errorf("The default success threshold of the alert should've been %d, but it was %d", 15, config.Services[0].Alerts[6].SuccessThreshold)
 	}
+
+	if config.Services[0].Alerts[7].Type != alert.TypeTeams {
+		t.Errorf("The type of the alert should've been %s, but it was %s", alert.TypeTeams, config.Services[0].Alerts[7].Type)
+	}
+	if !config.Services[0].Alerts[7].IsEnabled() {
+		t.Error("The alert should've been enabled")
+	}
+	if config.Services[0].Alerts[7].FailureThreshold != 3 {
+		t.Errorf("The default failure threshold of the alert should've been %d, but it was %d", 3, config.Services[0].Alerts[7].FailureThreshold)
+	}
+	if config.Services[0].Alerts[7].SuccessThreshold != 2 {
+		t.Errorf("The default success threshold of the alert should've been %d, but it was %d", 2, config.Services[0].Alerts[7].SuccessThreshold)
+	}
 }
 
 func TestParseAndValidateConfigBytesWithAlertingAndDefaultAlert(t *testing.T) {
@@ -538,6 +622,10 @@ alerting:
       enabled: true
       failure-threshold: 12
       success-threshold: 15
+  teams:
+    webhook-url: "http://example.com"
+    default-alert:
+      enabled: true
 
 services:
  - name: twinnation
@@ -551,6 +639,7 @@ services:
        success-threshold: 2 # test service alert override
      - type: telegram
      - type: twilio
+     - type: teams
    conditions:
      - "[STATUS] == 200"
 `))
@@ -642,6 +731,14 @@ services:
 	if config.Alerting.Twilio.GetDefaultAlert() == nil {
 		t.Fatal("Twilio.GetDefaultAlert() shouldn't have returned nil")
 	}
+
+	if config.Alerting.Teams == nil || !config.Alerting.Teams.IsValid() {
+		t.Fatal("Teams alerting config should've been valid")
+	}
+	if config.Alerting.Teams.GetDefaultAlert() == nil {
+		t.Fatal("Teams.GetDefaultAlert() shouldn't have returned nil")
+	}
+
 	// Services
 	if len(config.Services) != 1 {
 		t.Error("There should've been 1 service")
@@ -652,8 +749,8 @@ services:
 	if config.Services[0].Interval != 60*time.Second {
 		t.Errorf("Interval should have been %s, because it is the default value", 60*time.Second)
 	}
-	if len(config.Services[0].Alerts) != 7 {
-		t.Fatal("There should've been 7 alerts configured")
+	if len(config.Services[0].Alerts) != 8 {
+		t.Fatal("There should've been 8 alerts configured")
 	}
 
 	if config.Services[0].Alerts[0].Type != alert.TypeSlack {
@@ -743,6 +840,20 @@ services:
 	if config.Services[0].Alerts[6].SuccessThreshold != 15 {
 		t.Errorf("The default success threshold of the alert should've been %d, but it was %d", 15, config.Services[0].Alerts[6].SuccessThreshold)
 	}
+
+	if config.Services[0].Alerts[7].Type != alert.TypeTeams {
+		t.Errorf("The type of the alert should've been %s, but it was %s", alert.TypeTeams, config.Services[0].Alerts[7].Type)
+	}
+	if !config.Services[0].Alerts[7].IsEnabled() {
+		t.Error("The alert should've been enabled")
+	}
+	if config.Services[0].Alerts[7].FailureThreshold != 3 {
+		t.Errorf("The default failure threshold of the alert should've been %d, but it was %d", 3, config.Services[0].Alerts[7].FailureThreshold)
+	}
+	if config.Services[0].Alerts[7].SuccessThreshold != 2 {
+		t.Errorf("The default success threshold of the alert should've been %d, but it was %d", 2, config.Services[0].Alerts[7].SuccessThreshold)
+	}
+
 }
 
 func TestParseAndValidateConfigBytesWithAlertingAndDefaultAlertAndMultipleAlertsOfSameTypeWithOverriddenParameters(t *testing.T) {
@@ -895,6 +1006,9 @@ services:
 	if config.Alerting.Custom.Insecure {
 		t.Fatal("config.Alerting.Custom.Insecure shouldn't have been true")
 	}
+	if config.Alerting.Custom.ClientConfig.Insecure {
+		t.Errorf("ClientConfig.Insecure should have been %v, got %v", false, config.Alerting.Custom.ClientConfig.Insecure)
+	}
 }
 
 func TestParseAndValidateConfigBytesWithCustomAlertingConfigAndCustomPlaceholderValues(t *testing.T) {
@@ -1028,6 +1142,49 @@ services:
 	}
 }
 
+func TestParseAndValidateConfigBytesWithInvalidServiceName(t *testing.T) {
+	_, err := parseAndValidateConfigBytes([]byte(`
+services:
+  - name: ""
+    url: https://twinnation.org/health
+    conditions:
+      - "[STATUS] == 200"
+`))
+	if err != core.ErrServiceWithNoName {
+		t.Error("should've returned an error")
+	}
+}
+
+func TestParseAndValidateConfigBytesWithInvalidStorageConfig(t *testing.T) {
+	_, err := parseAndValidateConfigBytes([]byte(`
+storage:
+  type: sqlite
+services:
+  - name: example
+    url: https://example.org
+    conditions:
+      - "[STATUS] == 200"
+`))
+	if err == nil {
+		t.Error("should've returned an error, because a file must be specified for a storage of type sqlite")
+	}
+}
+
+func TestParseAndValidateConfigBytesWithInvalidYAML(t *testing.T) {
+	_, err := parseAndValidateConfigBytes([]byte(`
+storage:
+  invalid yaml
+services:
+  - name: example
+    url: https://example.org
+    conditions:
+      - "[STATUS] == 200"
+`))
+	if err == nil {
+		t.Error("should've returned an error")
+	}
+}
+
 func TestParseAndValidateConfigBytesWithInvalidSecurityConfig(t *testing.T) {
 	_, err := parseAndValidateConfigBytes([]byte(`
 security:
@@ -1041,7 +1198,7 @@ services:
       - "[STATUS] == 200"
 `))
 	if err == nil {
-		t.Error("Function should've returned an error")
+		t.Error("should've returned an error")
 	}
 }
 
@@ -1173,7 +1330,7 @@ kubernetes:
       target-path: "/health"
 `))
 	if err == nil {
-		t.Error("Function should've returned an error because providing a service-template is mandatory")
+		t.Error("should've returned an error because providing a service-template is mandatory")
 	}
 }
 
@@ -1192,7 +1349,7 @@ kubernetes:
       target-path: "/health"
 `))
 	if err == nil {
-		t.Error("Function should've returned an error because testing with ClusterModeIn isn't supported")
+		t.Error("should've returned an error because testing with ClusterModeIn isn't supported")
 	}
 }
 
@@ -1206,6 +1363,7 @@ func TestGetAlertingProviderByAlertType(t *testing.T) {
 		Slack:       &slack.AlertProvider{},
 		Telegram:    &telegram.AlertProvider{},
 		Twilio:      &twilio.AlertProvider{},
+		Teams:      &teams.AlertProvider{},
 	}
 	if alertingConfig.GetAlertingProviderByAlertType(alert.TypeCustom) != alertingConfig.Custom {
 		t.Error("expected Custom configuration")
@@ -1230,5 +1388,8 @@ func TestGetAlertingProviderByAlertType(t *testing.T) {
 	}
 	if alertingConfig.GetAlertingProviderByAlertType(alert.TypeTwilio) != alertingConfig.Twilio {
 		t.Error("expected Twilio configuration")
+	}
+	if alertingConfig.GetAlertingProviderByAlertType(alert.TypeTeams) != alertingConfig.Teams {
+		t.Error("expected Teams configuration")
 	}
 }

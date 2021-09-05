@@ -23,6 +23,9 @@ const (
 	// TypeSlack is the Type for the slack alerting provider
 	TypeSlack Type = "slack"
 
+	// TypeTeams is the Type for the teams alerting provider
+	TypeTeams Type = "teams"
+
 	// TypeTelegram is the Type for the telegram alerting provider
 	TypeTelegram Type = "telegram"
 

@@ -239,12 +239,12 @@ func (cache *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration)
 			Key:               key,
 			Value:             value,
 			RelevantTimestamp: time.Now(),
-			previous:          cache.head,
+			next:              cache.head,
 		}
 		if cache.head == nil {
 			cache.tail = entry
 		} else {
-			cache.head.next = entry
+			cache.head.previous = entry
 		}
 		cache.head = entry
 		cache.entries[key] = entry
@@ -260,7 +260,7 @@ func (cache *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration)
 			return
 		}
 		if cache.maxMemoryUsage != NoMaxMemoryUsage {
-			// Substract the old entry from the cache's memoryUsage
+			// Subtract the old entry from the cache's memoryUsage
 			cache.memoryUsage -= entry.SizeInBytes()
 		}
 		// Update existing entry's value
@@ -278,8 +278,8 @@ func (cache *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration)
 	} else {
 		entry.Expiration = NoExpiration
 	}
-	// If the cache doesn't have a maxSize/maxMemoryUsage, then there's no point checking if we need to evict
-	// an entry, so we'll just return now
+	// If the cache doesn't have a maxSize/maxMemoryUsage, then there's no point
+	// checking if we need to evict an entry, so we'll just return now
 	if cache.maxSize == NoMaxSize && cache.maxMemoryUsage == NoMaxMemoryUsage {
 		cache.mutex.Unlock()
 		return
@@ -519,10 +519,10 @@ func (cache *Cache) moveExistingEntryToHead(entry *Entry) {
 		cache.removeExistingEntryReferences(entry)
 	}
 	if entry != cache.head {
-		entry.previous = cache.head
-		entry.next = nil
+		entry.next = cache.head
+		entry.previous = nil
 		if cache.head != nil {
-			cache.head.next = entry
+			cache.head.previous = entry
 		}
 		cache.head = entry
 	}
@@ -536,9 +536,9 @@ func (cache *Cache) removeExistingEntryReferences(entry *Entry) {
 		cache.tail = nil
 		cache.head = nil
 	} else if cache.tail == entry {
-		cache.tail = cache.tail.next
+		cache.tail = cache.tail.previous
 	} else if cache.head == entry {
-		cache.head = cache.head.previous
+		cache.head = cache.head.next
 	}
 	if entry.previous != nil {
 		entry.previous.next = entry.next

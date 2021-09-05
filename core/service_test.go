@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/TwinProduction/gatus/alerting/alert"
+	"github.com/TwinProduction/gatus/client"
 )
 
 func TestService_ValidateAndSetDefaults(t *testing.T) {
@@ -19,6 +20,19 @@ func TestService_ValidateAndSetDefaults(t *testing.T) {
 		Alerts:     []*alert.Alert{{Type: alert.TypePagerDuty}},
 	}
 	service.ValidateAndSetDefaults()
+	if service.ClientConfig == nil {
+		t.Error("client configuration should've been set to the default configuration")
+	} else {
+		if service.ClientConfig.Insecure != client.GetDefaultConfig().Insecure {
+			t.Errorf("Default client configuration should've set Insecure to %v, got %v", client.GetDefaultConfig().Insecure, service.ClientConfig.Insecure)
+		}
+		if service.ClientConfig.IgnoreRedirect != client.GetDefaultConfig().IgnoreRedirect {
+			t.Errorf("Default client configuration should've set IgnoreRedirect to %v, got %v", client.GetDefaultConfig().IgnoreRedirect, service.ClientConfig.IgnoreRedirect)
+		}
+		if service.ClientConfig.Timeout != client.GetDefaultConfig().Timeout {
+			t.Errorf("Default client configuration should've set Timeout to %v, got %v", client.GetDefaultConfig().Timeout, service.ClientConfig.Timeout)
+		}
+	}
 	if service.Method != "GET" {
 		t.Error("Service method should've defaulted to GET")
 	}
@@ -39,6 +53,34 @@ func TestService_ValidateAndSetDefaults(t *testing.T) {
 	}
 	if service.Alerts[0].FailureThreshold != 3 {
 		t.Error("Service alert should've defaulted to a failure threshold of 3")
+	}
+}
+
+func TestService_ValidateAndSetDefaultsWithClientConfig(t *testing.T) {
+	condition := Condition("[STATUS] == 200")
+	service := Service{
+		Name:       "twinnation-health",
+		URL:        "https://twinnation.org/health",
+		Conditions: []*Condition{&condition},
+		ClientConfig: &client.Config{
+			Insecure:       true,
+			IgnoreRedirect: true,
+			Timeout:        0,
+		},
+	}
+	service.ValidateAndSetDefaults()
+	if service.ClientConfig == nil {
+		t.Error("client configuration should've been set to the default configuration")
+	} else {
+		if !service.ClientConfig.Insecure {
+			t.Error("service.ClientConfig.Insecure should've been set to true")
+		}
+		if !service.ClientConfig.IgnoreRedirect {
+			t.Error("service.ClientConfig.IgnoreRedirect should've been set to true")
+		}
+		if service.ClientConfig.Timeout != client.GetDefaultConfig().Timeout {
+			t.Error("service.ClientConfig.Timeout should've been set to 10s, because the timeout value entered is not set or invalid")
+		}
 	}
 }
 
@@ -100,31 +142,6 @@ func TestService_ValidateAndSetDefaultsWithDNS(t *testing.T) {
 	}
 	if service.DNS.QueryName != "example.com." {
 		t.Error("Service.dns.query-name should be formatted with . suffix")
-	}
-}
-
-func TestService_GetAlertsTriggered(t *testing.T) {
-	condition := Condition("[STATUS] == 200")
-	enabled := true
-	service := Service{
-		Name:       "twinnation-health",
-		URL:        "https://twinnation.org/health",
-		Conditions: []*Condition{&condition},
-		Alerts:     []*alert.Alert{{Type: alert.TypePagerDuty, Enabled: &enabled}},
-	}
-	service.ValidateAndSetDefaults()
-	if service.NumberOfFailuresInARow != 0 {
-		t.Error("Service.NumberOfFailuresInARow should start with 0")
-	}
-	if service.NumberOfSuccessesInARow != 0 {
-		t.Error("Service.NumberOfSuccessesInARow should start with 0")
-	}
-	if len(service.GetAlertsTriggered()) > 0 {
-		t.Error("No alerts should've been triggered, because service.NumberOfFailuresInARow is 0, which is below the failure threshold")
-	}
-	service.NumberOfFailuresInARow = service.Alerts[0].FailureThreshold
-	if len(service.GetAlertsTriggered()) != 1 {
-		t.Error("Alert should've been triggered")
 	}
 }
 
@@ -254,6 +271,7 @@ func TestIntegrationEvaluateHealth(t *testing.T) {
 		URL:        "https://twinnation.org/health",
 		Conditions: []*Condition{&condition, &bodyCondition},
 	}
+	service.ValidateAndSetDefaults()
 	result := service.EvaluateHealth()
 	if !result.ConditionResults[0].Success {
 		t.Errorf("Condition '%s' should have been a success", condition)
@@ -273,6 +291,7 @@ func TestIntegrationEvaluateHealthWithFailure(t *testing.T) {
 		URL:        "https://twinnation.org/health",
 		Conditions: []*Condition{&condition},
 	}
+	service.ValidateAndSetDefaults()
 	result := service.EvaluateHealth()
 	if result.ConditionResults[0].Success {
 		t.Errorf("Condition '%s' should have been a failure", condition)
@@ -297,6 +316,7 @@ func TestIntegrationEvaluateHealthForDNS(t *testing.T) {
 		},
 		Conditions: []*Condition{&conditionSuccess, &conditionBody},
 	}
+	service.ValidateAndSetDefaults()
 	result := service.EvaluateHealth()
 	if !result.ConditionResults[0].Success {
 		t.Errorf("Conditions '%s' and %s should have been a success", conditionSuccess, conditionBody)
@@ -316,6 +336,7 @@ func TestIntegrationEvaluateHealthForICMP(t *testing.T) {
 		URL:        "icmp://127.0.0.1",
 		Conditions: []*Condition{&conditionSuccess},
 	}
+	service.ValidateAndSetDefaults()
 	result := service.EvaluateHealth()
 	if !result.ConditionResults[0].Success {
 		t.Errorf("Conditions '%s' should have been a success", conditionSuccess)
